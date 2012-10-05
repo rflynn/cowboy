@@ -1,3 +1,4 @@
+%% ex: set ts=4 noet:
 %% Copyright (c) 2011-2012, Loïc Hoguin <essen@ninenines.eu>
 %% Copyright (c) 2011, Anthony Ramine <nox@dev-extend.eu>
 %%
@@ -129,6 +130,9 @@ parse_request(State=#state{buffer=Buffer, max_line_length=MaxLength}) ->
 -spec wait_request(#state{}) -> ok.
 wait_request(State=#state{socket=Socket, transport=Transport,
 		timeout=T, buffer=Buffer}) ->
+	Recv = Transport:recv(Socket, 0, T),
+    io:format("$ ~p Socket=~p Transport=~p T=~p Recv=~p",
+        [{?MODULE, ?LINE}, Socket, Transport, T, Recv]),
 	case Transport:recv(Socket, 0, T) of
 		{ok, Data} -> parse_request(State#state{
 			buffer= << Buffer/binary, Data/binary >>});
