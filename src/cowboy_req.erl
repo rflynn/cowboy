@@ -716,7 +716,16 @@ skip_body(Req) ->
 		true -> {ok, Req};
 		false ->
 			case stream_body(Req) of
-				{ok, _, Req2} -> skip_body(Req2);
+				{ok, _Data, Req2} ->
+					try
+						% horrible, horrible hack.
+						% if _Data looks like the beginning of a new HTTP request, don't throw it away
+						% why this happens I don't know, but it breaks under a Citrix NetScaler
+						<<"POST /",_/binary>> = _Data,
+						{ok, Req}
+					catch _:_ ->
+						skip_body(Req2)
+					end;
 				{done, Req2} -> {ok, Req2};
 				{error, Reason} -> {error, Reason}
 			end
