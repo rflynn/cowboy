@@ -709,20 +709,26 @@ read_body(MaxLength, Req, Acc) when MaxLength > byte_size(Acc) ->
 			{error, Reason}
 	end.
 
+is_multipart(Req) ->
+    case parse_header('Content-Type', Req) of
+	    {ok, {<<"multipart">>, _SubType, _Params}, _Req} -> true;
+        _ -> false
+    end.
+
 -spec skip_body(Req) -> {ok, Req} | {error, atom()} when Req::req().
 skip_body(Req) ->
-    io:format("$ ~p multipart_skip..~n", [{?MODULE, skip_body, ?LINE}]),
-    %case parse_header('Content-Type', Req) of
-	    %{ok, {<<"multipart">>, _SubType, _Params}, _Req2} -> multipart_skip(Req);
-        %_ ->
-	case stream_body(Req) of
-		{ok, _Data, Req2} ->
-            io:format("$ ~p _=~p~n", [{?MODULE, skip_body, ?LINE}, _Data]),
-            io:format("$ ~p Req=~500p~n", [{?MODULE, skip_body, ?LINE}, Req]),
-            skip_body(Req2);
-		{done, Req2} -> {ok, Req2};
-		{error, Reason} -> {error, Reason}
-    %end
+    case is_multipart(Req) of
+        true ->
+            io:format("$ ~p multipart_skip..~n", [{?MODULE, skip_body, ?LINE}]),
+            {ok, Req};
+        false ->
+	        case stream_body(Req) of
+		        {ok, _Data, Req2} ->
+                    io:format("$ ~p _=~p~n", [{?MODULE, skip_body, ?LINE}, _Data]),
+                    skip_body(Req2);
+		        {done, Req2} -> {ok, Req2};
+		        {error, Reason} -> {error, Reason}
+            end
     end.
 
 %% @doc Return the full body sent with the reqest, parsed as an
