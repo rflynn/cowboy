@@ -704,12 +704,22 @@ read_body(MaxLength, Req, Acc) when MaxLength > byte_size(Acc) ->
 			{error, Reason}
 	end.
 
+is_multipart(Req) ->
+	case parse_header('Content-Type', Req) of
+		{ok, {<<"multipart">>, _SubType, _Params}, _Req} -> true;
+		_ -> false
+	end.
+
 -spec skip_body(Req) -> {ok, Req} | {error, atom()} when Req::req().
 skip_body(Req) ->
-	case stream_body(Req) of
-		{ok, _, Req2} -> skip_body(Req2);
-		{done, Req2} -> {ok, Req2};
-		{error, Reason} -> {error, Reason}
+	case is_multipart(Req) of
+		true -> {ok, Req};
+		false ->
+			case stream_body(Req) of
+				{ok, _, Req2} -> skip_body(Req2);
+				{done, Req2} -> {ok, Req2};
+				{error, Reason} -> {error, Reason}
+			end
 	end.
 
 %% @doc Return the full body sent with the reqest, parsed as an
