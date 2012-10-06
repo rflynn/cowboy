@@ -804,7 +804,11 @@ connection_to_atom([]) ->
 	keepalive;
 connection_to_atom([<<"keep-alive">>|_Tail]) ->
 	keepalive;
+connection_to_atom([<<"Keep-Alive">>|_Tail]) -> % sent by Citrix NetScaler
+	keepalive;
 connection_to_atom([<<"close">>|_Tail]) ->
+	close;
+connection_to_atom([<<"Close">>|_Tail]) -> % sent by Citrix NetScaler's monitor test: httpnstest-head
 	close;
 connection_to_atom([_Any|Tail]) ->
 	connection_to_atom(Tail).
@@ -1056,7 +1060,9 @@ connection_to_atom_test_() ->
 	%% {Tokens, Result}
 	Tests = [
 		{[<<"close">>], close},
+		{[<<"Close">>], close}, % sent by Citrix NetScaler
 		{[<<"keep-alive">>], keepalive},
+		{[<<"Keep-Alive">>], keepalive}, % sent by Citrix NetScaler
 		{[<<"keep-alive">>, <<"upgrade">>], keepalive}
 	],
 	[{lists:flatten(io_lib:format("~p", [T])),

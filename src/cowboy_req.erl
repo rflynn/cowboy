@@ -584,7 +584,7 @@ init_stream(TransferDecode, TransferState, ContentDecode, Req) ->
 %% for each streamed part, and {done, Req} when it's finished streaming.
 -spec stream_body(Req) -> {ok, binary(), Req}
 	| {done, Req} | {error, atom()} when Req::req().
-stream_body(Req=#http_req{body_state=waiting,
+stream_body(Req=#http_req{body_state=waiting, multipart=Multipart,
 		version=Version, transport=Transport, socket=Socket}) ->
 	case parse_header(<<"Expect">>, Req) of
 		{ok, [<<"100-continue">>], Req1} ->
@@ -594,13 +594,17 @@ stream_body(Req=#http_req{body_state=waiting,
 		{ok, undefined, Req1} ->
 			ok
 	end,
+    {ok, ContentType, _} = parse_header('Content-Type', Req),
+    io:format("$ ~p Socket=~p Multipart=~p ContentType=~p~n", [{?MODULE, stream_body, ?LINE}, Socket, Multipart, ContentType]),
 	case parse_header('Transfer-Encoding', Req1) of
 		{ok, [<<"chunked">>], Req2} ->
+            io:format("$ ~p chunked~n", [{?MODULE, stream_body, ?LINE}]),
 			stream_body(Req2#http_req{body_state=
 				{stream, fun cowboy_http:te_chunked/2, {0, 0},
 				 fun cowboy_http:ce_identity/1}});
 		{ok, [<<"identity">>], Req2} ->
 			{Length, Req3} = body_length(Req2),
+            io:format("$ ~p Length=~p~n", [{?MODULE, stream_body, ?LINE}, Length]),
 			case Length of
 				0 ->
 					{done, Req3#http_req{body_state=done}};
@@ -623,6 +627,7 @@ stream_body(Req=#http_req{body_state=done}) ->
 stream_body_recv(Req=#http_req{
 		transport=Transport, socket=Socket, buffer=Buffer}) ->
 	%% @todo Allow configuring the timeout.
+    io:format("$ ~p Socket=~p~n", [{?MODULE, stream_body_recv, ?LINE}, Socket]),
 	case Transport:recv(Socket, 0, 5000) of
 		{ok, Data} -> transfer_decode(<< Buffer/binary, Data/binary >>, Req);
 		{error, Reason} -> {error, Reason}
@@ -706,11 +711,19 @@ read_body(MaxLength, Req, Acc) when MaxLength > byte_size(Acc) ->
 
 -spec skip_body(Req) -> {ok, Req} | {error, atom()} when Req::req().
 skip_body(Req) ->
+    io:format("$ ~p multipart_skip..~n", [{?MODULE, skip_body, ?LINE}]),
+    %case parse_header('Content-Type', Req) of
+	    %{ok, {<<"multipart">>, _SubType, _Params}, _Req2} -> multipart_skip(Req);
+        %_ ->
 	case stream_body(Req) of
-		{ok, _, Req2} -> skip_body(Req2);
+		{ok, _Data, Req2} ->
+            io:format("$ ~p _=~p~n", [{?MODULE, skip_body, ?LINE}, _Data]),
+            io:format("$ ~p Req=~500p~n", [{?MODULE, skip_body, ?LINE}, Req]),
+            skip_body(Req2);
 		{done, Req2} -> {ok, Req2};
 		{error, Reason} -> {error, Reason}
-	end.
+    %end
+    end.
 
 %% @doc Return the full body sent with the reqest, parsed as an
 %% application/x-www-form-urlencoded string. Essentially a POST query string.
@@ -765,6 +778,7 @@ multipart_data(Req=#http_req{socket=Socket, transport=Transport},
 		Length, eof) ->
 	%% We just want to skip so no need to stream data here.
 	{ok, _Data} = Transport:recv(Socket, Length, 5000),
+    io:format("$ ~p _Data=~p", [{?MODULE, multipart_data, ?LINE}, _Data]),
 	{eof, Req#http_req{body_state=done, multipart=undefined}};
 multipart_data(Req, Length, {more, Parser}) when Length > 0 ->
 	case stream_body(Req) of
@@ -973,6 +987,7 @@ set_connection(RawConnection, Req=#http_req{headers=Headers}) ->
 	Req2 = Req#http_req{headers=[{'Connection', RawConnection}|Headers]},
 	{ok, ConnTokens, Req3} = parse_header('Connection', Req2),
 	ConnAtom = cowboy_http:connection_to_atom(ConnTokens),
+    io:format("$ ~p ConnAtom=~p ConnTokens=~p~n", [{?MODULE, set_connection, ?LINE}, ConnAtom, ConnTokens]),
 	Req3#http_req{connection=ConnAtom}.
 
 %% @private
@@ -1006,6 +1021,7 @@ get_buffer(#http_req{buffer=Buffer}) ->
 %% @private
 -spec get_connection(req()) -> keepalive | close.
 get_connection(#http_req{connection=Connection}) ->
+    io:format("$ ~p Connection=~p~n", [{?MODULE, get_connection, ?LINE}, Connection]),
 	Connection.
 
 %% Misc API.

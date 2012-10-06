@@ -108,6 +108,7 @@ init(ListenerPid, Socket, Transport, Opts) ->
 	URLDecDefault = {fun cowboy_http:urldecode/2, crash},
 	URLDec = get_value(urldecode, Opts, URLDecDefault),
 	ok = ranch:accept_ack(ListenerPid),
+    io:format("$ ~p Socket=~p~n", [{?MODULE, init, ?LINE}, Socket]),
 	wait_request(#state{listener=ListenerPid, socket=Socket, transport=Transport,
 		dispatch=Dispatch, max_empty_lines=MaxEmptyLines,
 		max_keepalive=MaxKeepalive, max_line_length=MaxLineLength,
@@ -118,8 +119,12 @@ init(ListenerPid, Socket, Transport, Opts) ->
 -spec parse_request(#state{}) -> ok.
 %% We limit the length of the Request-line to MaxLength to avoid endlessly
 %% reading from the socket and eventually crashing.
-parse_request(State=#state{buffer=Buffer, max_line_length=MaxLength}) ->
-	case erlang:decode_packet(http_bin, Buffer, []) of
+parse_request(State=#state{buffer=Buffer, socket=Socket, max_line_length=MaxLength}) ->
+	Decoded = erlang:decode_packet(http_bin, Buffer, []),
+    io:format("$ ~p Socket=~p~n", [{?MODULE, parse_request, ?LINE}, Socket]),
+    io:format("$ ~p Buffer=~p~n", [{?MODULE, parse_request, ?LINE}, Buffer]),
+    io:format("$ ~p Decoded=~500p~n", [{?MODULE, parse_request, ?LINE}, Decoded]),
+	case Decoded of
 		{ok, Request, Rest} -> request(Request, State#state{buffer=Rest});
 		{more, _Length} when byte_size(Buffer) > MaxLength ->
 			error_terminate(413, State);
@@ -131,12 +136,15 @@ parse_request(State=#state{buffer=Buffer, max_line_length=MaxLength}) ->
 wait_request(State=#state{socket=Socket, transport=Transport,
 		timeout=T, buffer=Buffer}) ->
 	Recv = Transport:recv(Socket, 0, T),
-    io:format("$ ~p Socket=~p Transport=~p T=~p Recv=~p",
-        [{?MODULE, ?LINE}, Socket, Transport, T, Recv]),
-	case Transport:recv(Socket, 0, T) of
-		{ok, Data} -> parse_request(State#state{
+    io:format("$ ~p Socket=~p Transport=~p T=~p Recv=~p~n", [{?MODULE, wait_request, ?LINE}, Socket, Transport, T, Recv]),
+	case Recv of
+		{ok, Data} ->
+            io:format("$ ~p let's call parse_request!~n", [{?MODULE, wait_request, ?LINE}]),
+            parse_request(State#state{
 			buffer= << Buffer/binary, Data/binary >>});
-		{error, _Reason} -> terminate(State)
+		{error, _Reason} ->
+            io:format("$ ~p {error, _Reason=~p}~n", [{?MODULE, wait_request, ?LINE}, _Reason]),
+            terminate(State)
 	end.
 
 -spec request({http_request, cowboy_http:method(), cowboy_http:uri(),
@@ -158,6 +166,7 @@ request({http_request, Method, {abs_path, AbsPath}, Version},
 	ConnAtom = if Keepalive < MaxKeepalive -> version_to_connection(Version);
 		true -> close
 	end,
+    io:format("$ ~p Version=~p ConnAtom=~p~n", [{?MODULE, request, ?LINE}, Version, ConnAtom]),
 	parse_header(cowboy_req:new(Socket, Transport, ConnAtom, Method, Version,
 		RawPath, Qs, OnResponse, URLDec), State#state{path_tokens=PathTokens});
 request({http_request, Method, '*', Version},
@@ -167,6 +176,7 @@ request({http_request, Method, '*', Version},
 	ConnAtom = if Keepalive < MaxKeepalive -> version_to_connection(Version);
 		true -> close
 	end,
+    io:format("$ ~p Version=~p ConnAtom=~p~n", [{?MODULE, request, ?LINE}, Version, ConnAtom]),
 	parse_header(cowboy_req:new(Socket, Transport, ConnAtom, Method, Version,
 		<<"*">>, <<>>, OnResponse, URLDec), State#state{path_tokens='*'});
 request({http_request, _Method, _URI, _Version}, State) ->
@@ -174,14 +184,18 @@ request({http_request, _Method, _URI, _Version}, State) ->
 request({http_error, <<"\r\n">>},
 		State=#state{req_empty_lines=N, max_empty_lines=N}) ->
 	error_terminate(400, State);
-request({http_error, <<"\r\n">>}, State=#state{req_empty_lines=N}) ->
+request(X={http_error, <<"\r\n">>}, State=#state{req_empty_lines=N}) ->
+    io:format("$ ~p request X=~p~n", [{?MODULE, ?LINE}, X]),
 	parse_request(State#state{req_empty_lines=N + 1});
 request(_Any, State) ->
+    io:format("$ ~p request _Any=~p~n", [{?MODULE, ?LINE}, _Any]),
 	error_terminate(400, State).
-
 -spec parse_header(cowboy_req:req(), #state{}) -> ok.
 parse_header(Req, State=#state{buffer=Buffer, max_line_length=MaxLength}) ->
-	case erlang:decode_packet(httph_bin, Buffer, []) of
+	Decoded = erlang:decode_packet(httph_bin, Buffer, []),
+    %io:format("$ ~p Buffer=~p~n", [{?MODULE, parse_header, ?LINE}, Buffer]),
+    %io:format("$ ~p Decoded=~p~n", [{?MODULE, parse_header, ?LINE}, Decoded]),
+	case Decoded of
 		{ok, Header, Rest} -> header(Header, Req, State#state{buffer=Rest});
 		{more, _Length} when byte_size(Buffer) > MaxLength ->
 			error_terminate(413, State);
@@ -192,7 +206,9 @@ parse_header(Req, State=#state{buffer=Buffer, max_line_length=MaxLength}) ->
 -spec wait_header(cowboy_req:req(), #state{}) -> ok.
 wait_header(Req, State=#state{socket=Socket,
 		transport=Transport, timeout=T, buffer=Buffer}) ->
-	case Transport:recv(Socket, 0, T) of
+	Recv = Transport:recv(Socket, 0, T),
+    io:format("$ ~p wait_header Socket=~p Transport=~p T=~p Recv=~p~n", [{?MODULE, ?LINE}, Socket, Transport, T, Recv]),
+	case Recv of
 		{ok, Data} -> parse_header(Req, State#state{
 			buffer= << Buffer/binary, Data/binary >>});
 		{error, timeout} -> error_terminate(408, State);
@@ -221,6 +237,7 @@ header({http_header, _I, 'Host', _R, _V}, Req, State) ->
 header({http_header, _I, 'Connection', _R, Connection}, Req,
 		State=#state{req_keepalive=Keepalive, max_keepalive=MaxKeepalive})
 		when Keepalive < MaxKeepalive ->
+    io:format("$ ~p Connnection=~p~n", [{?MODULE, header, ?LINE}, Connection]),
 	parse_header(cowboy_req:set_connection(Connection, Req), State);
 header({http_header, _I, Field, _R, Value}, Req, State) ->
 	Field2 = format_header(Field),
@@ -410,20 +427,23 @@ terminate_request(HandlerState, Req, State) ->
 
 -spec next_request(cowboy_req:req(), #state{}, any()) -> ok.
 next_request(Req, State=#state{
-		req_keepalive=Keepalive}, HandlerRes) ->
+		req_keepalive=Keepalive, socket=Socket}, HandlerRes) ->
 	cowboy_req:ensure_response(Req, 204),
 	{BodyRes, Buffer} = case cowboy_req:skip_body(Req) of
 		{ok, Req2} -> {ok, cowboy_req:get_buffer(Req2)};
 		{error, _} -> {close, <<>>}
 	end,
+    io:format("$ ~p Socket=~p BodyRes=~p Buffer=~p~n", [{?MODULE, next_request, ?LINE}, Socket, BodyRes, Buffer]),
 	%% Flush the resp_sent message before moving on.
 	receive {cowboy_req, resp_sent} -> ok after 0 -> ok end,
 	case {HandlerRes, BodyRes, cowboy_req:get_connection(Req)} of
 		{ok, ok, keepalive} ->
+            io:format("$ ~p {ok, ok, keepalive} Socket=~p~n", [{?MODULE, next_request, ?LINE}, Socket]),
 			?MODULE:parse_request(State#state{
 				buffer=Buffer, host_tokens=undefined, path_tokens=undefined,
 				req_empty_lines=0, req_keepalive=Keepalive + 1});
 		_Closed ->
+            io:format("$ ~p _Closed=~p Socket=~p~n", [{?MODULE, next_request, ?LINE}, _Closed, Socket]),
 			terminate(State)
 	end.
 
@@ -442,6 +462,7 @@ error_terminate(Code, State=#state{socket=Socket, transport=Transport,
 
 -spec terminate(#state{}) -> ok.
 terminate(#state{socket=Socket, transport=Transport}) ->
+    io:format("$ ~p Socket=~p Transport=~p~n", [{?MODULE, next_request, ?LINE}, Socket, Transport]),
 	Transport:close(Socket),
 	ok.
 
