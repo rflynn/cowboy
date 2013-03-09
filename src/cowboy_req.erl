@@ -223,6 +223,11 @@ version(Req) ->
 -spec peer(Req)
 	-> {undefined | {inet:ip_address(), inet:port_number()}, Req}
 	when Req::req().
+peer(Req=#http_req{socket=Socket, transport=Transport, peer=undefined}) ->
+	case Transport:peername(Socket) of
+		{ok, Peer} -> {Peer, Req#http_req{peer=Peer}};
+		E={error,_} -> E
+	end;
 peer(Req) ->
 	{Req#http_req.peer, Req}.
 
