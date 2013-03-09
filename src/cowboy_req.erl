@@ -774,7 +774,7 @@ body_qs(Req) ->
 %% is returned.
 -spec multipart_data(Req)
 	-> {headers, cowboy_http:headers(), Req} | {body, binary(), Req}
-		| {error, atom()} | {end_of_part | eof, Req} when Req::req().
+		| {end_of_part | eof, Req} when Req::req().
 multipart_data(Req=#http_req{body_state=waiting}) ->
 	{ok, {<<"multipart">>, _SubType, Params}, Req2} =
 		parse_header(<<"content-type">>, Req),
@@ -804,8 +804,7 @@ multipart_data(Req, Length, {more, Parser}) when Length > 0 ->
 		{ok, << Data:Length/binary, Buffer/binary >>, Req2} ->
 			multipart_data(Req2#http_req{buffer=Buffer}, 0, Parser(Data));
 		{ok, Data, Req2} ->
-			multipart_data(Req2, Length - byte_size(Data), Parser(Data));
-		E={error,_} -> E
+			multipart_data(Req2, Length - byte_size(Data), Parser(Data))
 	end.
 
 %% @doc Skip a part returned by the multipart parser.
